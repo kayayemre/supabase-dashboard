@@ -20,7 +20,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     const u = localStorage.getItem("user");
-    if (!u) router.push("/login");
+    if (!u) router.push("/");
     else setKullanici(JSON.parse(u));
   }, []);
 
