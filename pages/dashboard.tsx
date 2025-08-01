@@ -59,14 +59,16 @@ export default function Dashboard() {
   const mesajSayisi = veriler.length;
   const aranan = veriler.filter((v) => v.durum === "ARANDI" || v.durum === "SATIŞ").length;
   const aramaOrani = mesajSayisi ? Math.round((aranan / mesajSayisi) * 100) : 0;
+type KullaniciIstatistik = { arandi: number; satis: number };
 
-  const kullaniciStats = veriler.reduce((acc, v) => {
-    const k = v.updated_by || "Bilinmiyor";
-    acc[k] = acc[k] || { arandi: 0, satis: 0 };
-    if (v.durum === "ARANDI") acc[k].arandi += 1;
-    if (v.durum === "SATIŞ") acc[k].satis += 1;
-    return acc;
-  }, {} as Record<string, { arandi: number; satis: number }>);
+  const kullaniciStats: Record<string, KullaniciIstatistik> = veriler.reduce((acc, v) => {
+  const k = v.updated_by || "Bilinmiyor";
+  acc[k] = acc[k] || { arandi: 0, satis: 0 };
+  if (v.durum === "ARANDI") acc[k].arandi += 1;
+  if (v.durum === "SATIŞ") acc[k].satis += 1;
+  return acc;
+}, {} as Record<string, KullaniciIstatistik>);
+
 
   const kullaniciListesi = Object.entries(kullaniciStats).sort(
     (a, b) => b[1].arandi + b[1].satis - (a[1].arandi + a[1].satis)
