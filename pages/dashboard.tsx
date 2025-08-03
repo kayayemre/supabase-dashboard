@@ -12,11 +12,16 @@ export default function Dashboard() {
   const router = useRouter();
   const [veriler, setVeriler] = useState<any[]>([]);
   const [sayfa, setSayfa] = useState(1);
+  const sayfaBoyutu = 50;
+  const [toplamKayit, setToplamKayit] = useState(0);
+  const [istatistik, setIstatistik] = useState({ toplam: 0, aranan: 0 });
+  const [kullaniciIstatistik, setKullaniciIstatistik] = useState<
+    Record<string, { arandi: number; satis: number }>
+  >({});
   const bugunTR = new Date().toLocaleString("en-CA", { timeZone: "Europe/Istanbul" }).split(",")[0];
   const [seciliTarih, setSeciliTarih] = useState(bugunTR);
   const [modalData, setModalData] = useState<any | null>(null);
   const [kullanici, setKullanici] = useState<any>(null);
-  const sayfaBoyutu = 50;
 
   useEffect(() => {
     const u = localStorage.getItem("user");
@@ -28,21 +33,77 @@ export default function Dashboard() {
     const fetchData = async () => {
       const start = new Date(`${seciliTarih}T00:00:00+03:00`).toISOString();
       const end = new Date(`${seciliTarih}T23:59:59+03:00`).toISOString();
+      const baslangic = (sayfa - 1) * sayfaBoyutu;
+      const bitis = baslangic + sayfaBoyutu - 1;
 
-      const { data } = await supabase
+      const { data, count } = await supabase
         .from("musteriler")
-        .select("*")
+        .select("*", { count: "exact" })
         .gte("created_at", start)
         .lte("created_at", end)
         .ilike("not", "%whatsapp%")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .range(baslangic, bitis);
 
-      if (data) setVeriler(data);
+      if (data) {
+        setVeriler(data);
+        if (typeof count === "number") setToplamKayit(count);
+      }
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
+
+    const interval = sayfa === 1 ? setInterval(fetchData, 5000) : null;
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [seciliTarih, sayfa]);
+
+  useEffect(() => {
+    const fetchIstatistik = async () => {
+      const start = new Date(`${seciliTarih}T00:00:00+03:00`).toISOString();
+      const end = new Date(`${seciliTarih}T23:59:59+03:00`).toISOString();
+
+      const toplam = await supabase
+        .from("musteriler")
+        .select("*", { count: "exact", head: true })
+        .gte("created_at", start)
+        .lte("created_at", end)
+        .ilike("not", "%whatsapp%");
+
+      const aranan = await supabase
+        .from("musteriler")
+        .select("*", { count: "exact", head: true })
+        .gte("created_at", start)
+        .lte("created_at", end)
+        .ilike("not", "%whatsapp%")
+        .in("durum", ["ARANDI", "SATIŞ"]);
+
+      setIstatistik({
+        toplam: toplam.count || 0,
+        aranan: aranan.count || 0,
+      });
+
+      // 🔥 Kullanıcı bazlı tüm istatistikler
+      const { data: tumKayitlar } = await supabase
+        .from("musteriler")
+        .select("updated_by, durum")
+        .gte("created_at", start)
+        .lte("created_at", end)
+        .ilike("not", "%whatsapp%");
+
+      const kStats: Record<string, { arandi: number; satis: number }> = {};
+      for (const k of tumKayitlar || []) {
+        const kadi = k.updated_by || "Bilinmiyor";
+        if (!kStats[kadi]) kStats[kadi] = { arandi: 0, satis: 0 };
+        if (k.durum === "ARANDI") kStats[kadi].arandi += 1;
+        if (k.durum === "SATIŞ") kStats[kadi].satis += 1;
+      }
+
+      setKullaniciIstatistik(kStats);
+    };
+
+    fetchIstatistik();
   }, [seciliTarih]);
 
   const durumDegistir = async (id: string, yeniDurum: string) => {
@@ -56,44 +117,23 @@ export default function Dashboard() {
       .eq("id", id);
   };
 
-  const mesajSayisi = veriler.length;
-  const aranan = veriler.filter((v) => v.durum === "ARANDI" || v.durum === "SATIŞ").length;
-  const aramaOrani = mesajSayisi ? Math.round((aranan / mesajSayisi) * 100) : 0;
-type KullaniciIstatistik = { arandi: number; satis: number };
-
-  const kullaniciStats: Record<string, KullaniciIstatistik> = veriler.reduce((acc, v) => {
-  const k = v.updated_by || "Bilinmiyor";
-  acc[k] = acc[k] || { arandi: 0, satis: 0 };
-  if (v.durum === "ARANDI") acc[k].arandi += 1;
-  if (v.durum === "SATIŞ") acc[k].satis += 1;
-  return acc;
-}, {} as Record<string, KullaniciIstatistik>);
-
-
-  const kullaniciListesi = Object.entries(kullaniciStats).sort(
+  const toplamSayfa = Math.ceil(toplamKayit / sayfaBoyutu);
+  const siraliKullanicilar = Object.entries(kullaniciIstatistik).sort(
     (a, b) => b[1].arandi + b[1].satis - (a[1].arandi + a[1].satis)
   );
-
-  const baslangic = (sayfa - 1) * sayfaBoyutu;
-  const gosterilen = veriler.slice(baslangic, baslangic + sayfaBoyutu);
-  const toplamSayfa = Math.ceil(veriler.length / sayfaBoyutu);
 
   return (
     <div style={{ padding: "20px", fontFamily: "Arial" }}>
       <h2>🧾 Genel İstatistikler</h2>
-      <input
-        type="date"
-        value={seciliTarih}
-        onChange={(e) => setSeciliTarih(e.target.value)}
-      />
-      <p>Toplam Mesaj: {mesajSayisi}</p>
-      <p>Aranan: {aranan}</p>
-      <p>Arama Oranı: %{aramaOrani}</p>
+      <input type="date" value={seciliTarih} onChange={(e) => setSeciliTarih(e.target.value)} />
+      <p>Toplam Mesaj: {istatistik.toplam}</p>
+      <p>Aranan: {istatistik.aranan}</p>
+      <p>Arama Oranı: %{istatistik.toplam ? Math.round((istatistik.aranan / istatistik.toplam) * 100) : 0}</p>
 
       <hr />
 
-      <h2>👤 Kullanıcı İstatistikleri</h2>
-      {kullaniciListesi.map(([kadi, stat]) => (
+      <h2>👤 Kullanıcı İstatistikleri (Tüm Gün İçin)</h2>
+      {siraliKullanicilar.map(([kadi, stat]) => (
         <p key={kadi}>
           {kadi}: Arandı = {stat.arandi}, Satış = {stat.satis}
         </p>
@@ -118,7 +158,7 @@ type KullaniciIstatistik = { arandi: number; satis: number };
           </tr>
         </thead>
         <tbody>
-          {gosterilen.map((v) => (
+          {veriler.map((v) => (
             <tr key={v.id}>
               <td>{toTRString(v.created_at)}</td>
               <td>
@@ -152,13 +192,20 @@ type KullaniciIstatistik = { arandi: number; satis: number };
       <div style={{ marginTop: "10px" }}>
         Sayfa:
         {Array.from({ length: toplamSayfa }).map((_, i) => (
-          <button key={i} onClick={() => setSayfa(i + 1)} style={{ marginLeft: 5 }}>
+          <button
+            key={i}
+            onClick={() => setSayfa(i + 1)}
+            style={{
+              marginLeft: 5,
+              background: sayfa === i + 1 ? "#000" : "#fff",
+              color: sayfa === i + 1 ? "#fff" : "#000",
+            }}
+          >
             {i + 1}
           </button>
         ))}
       </div>
 
-      {/* Modal */}
       {modalData && (
         <div
           style={{
