@@ -84,13 +84,16 @@ export default function Dashboard() {
         aranan: aranan.count || 0,
       });
 
-      // 🔥 Kullanıcı bazlı tüm istatistikler
-      const { data: tumKayitlar } = await supabase
-        .from("musteriler")
-        .select("updated_by, durum")
-        .gte("created_at", start)
-        .lte("created_at", end)
-        .ilike("not", "%whatsapp%");
+  
+  // 🔥 Kullanıcı bazlı tüm istatistikler  (YENİ)
+const { data: tumKayitlar } = await supabase
+  .from("musteriler")
+  .select("updated_by, durum, updated_at")
+  .gte("updated_at", start)
+  .lte("updated_at", end)
+  .not("updated_at", "is", null) // güvenlik amaçlı
+  .ilike("not", "%whatsapp%");
+
 
       const kStats: Record<string, { arandi: number; satis: number }> = {};
       for (const k of tumKayitlar || []) {
@@ -133,11 +136,13 @@ export default function Dashboard() {
       <hr />
 
       <h2>👤 Kullanıcı İstatistikleri (Tüm Gün İçin)</h2>
-      {siraliKullanicilar.map(([kadi, stat]) => (
-        <p key={kadi}>
-          {kadi}: Arandı = {stat.arandi}, Satış = {stat.satis}
-        </p>
-      ))}
+     {siraliKullanicilar.map(([kadi, stat]) => (
+  <p key={kadi}>
+    {kadi} {stat.arandi} kişiyi aradı
+    {stat.satis > 0 ? `, ${stat.satis} satış yaptı` : ""}
+  </p>
+))}
+
 
       <hr />
 
