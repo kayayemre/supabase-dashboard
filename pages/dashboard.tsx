@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { supabase } from "../lib/supabaseClient";
 import * as XLSX from "xlsx"; // XLSX paketi
 
-// --- Yardımcılar ---
+// ---------- Yardımcılar ----------
 // UTC → Türkiye saati dönüşümü
 function toTRString(isoStr: string) {
   const d = new Date(isoStr);
@@ -36,12 +36,15 @@ function todayTRRange() {
   };
 }
 
+// ---------- Sayfa ----------
 export default function Dashboard() {
   const router = useRouter();
+
   const [veriler, setVeriler] = useState<any[]>([]);
   const [sayfa, setSayfa] = useState(1);
   const sayfaBoyutu = 50;
   const [toplamKayit, setToplamKayit] = useState(0);
+
   const [istatistik, setIstatistik] = useState({ toplam: 0, aranan: 0 });
   const [kullaniciIstatistik, setKullaniciIstatistik] = useState<
     Record<string, { arandi: number; satis: number }>
@@ -51,8 +54,11 @@ export default function Dashboard() {
   const [kullanici, setKullanici] = useState<any>(null);
   const adminUsers = useMemo(() => ["admin", "yönetici"], []);
   const isAdmin = useMemo(() => {
-    const roleOK = kullanici?.role && String(kullanici.role).toLowerCase() === "admin";
-    const wlOK = kullanici?.username && adminUsers.includes(String(kullanici.username).toLowerCase());
+    const roleOK =
+      kullanici?.role && String(kullanici.role).toLowerCase() === "admin";
+    const wlOK =
+      kullanici?.username &&
+      adminUsers.includes(String(kullanici.username).toLowerCase());
     return !!(roleOK || wlOK);
   }, [kullanici, adminUsers]);
 
@@ -61,9 +67,20 @@ export default function Dashboard() {
   const [seciliBasDT, setSeciliBasDT] = useState(startLocalInput);
   const [seciliBitDT, setSeciliBitDT] = useState(endLocalInput);
 
-  // Toplu işlem UI durumları (yalnız admin)
+  // Toplu işlem UI (sadece admin)
   const [yeniDurumToplu, setYeniDurumToplu] = useState<string>("ARANMADI");
   const [topluLoading, setTopluLoading] = useState<boolean>(false);
+
+  // Çıkış
+  const logout = async () => {
+    try {
+      localStorage.removeItem("user");
+      // Supabase Auth kullanıyorsanız:
+      await supabase.auth.signOut().catch(() => {});
+    } finally {
+      router.push("/");
+    }
+  };
 
   useEffect(() => {
     const u = localStorage.getItem("user");
@@ -74,7 +91,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Sorgu aralığı: admin seçili tarihi kullanır; non-admin bugüne kilitlenir
+  // Sorgu aralığı: admin seçili tarihi kullanır; non-admin bugüne kilitli
   const queryRange = useMemo(() => {
     if (isAdmin) {
       return {
@@ -82,11 +99,11 @@ export default function Dashboard() {
         end: dtLocalToISO(seciliBitDT),
       };
     }
-    // non-admin => bugünün TR aralığı
     const { startISO, endISO } = todayTRRange();
     return { start: startISO, end: endISO };
   }, [isAdmin, seciliBasDT, seciliBitDT]);
 
+  // Liste verisi
   const reloadList = useCallback(async () => {
     const { start, end } = queryRange;
     const baslangic = (sayfa - 1) * sayfaBoyutu;
@@ -107,10 +124,10 @@ export default function Dashboard() {
     }
   }, [queryRange, sayfa]);
 
+  // İstatistikler
   const reloadStats = useCallback(async () => {
     const { start, end } = queryRange;
 
-    // Genel
     const toplam = await supabase
       .from("musteriler")
       .select("*", { count: "exact", head: true })
@@ -131,7 +148,6 @@ export default function Dashboard() {
       aranan: aranan.count || 0,
     });
 
-    // Kullanıcı (updated_at)
     const { data: tumKayitlar } = await supabase
       .from("musteriler")
       .select("updated_by, durum, updated_at")
@@ -150,7 +166,7 @@ export default function Dashboard() {
     setKullaniciIstatistik(kStats);
   }, [queryRange]);
 
-  // Liste verisi (otomatik yenileme sadece 1. sayfada)
+  // Otomatik yenileme (yalnız 1. sayfa)
   useEffect(() => {
     reloadList();
     const interval = sayfa === 1 ? setInterval(reloadList, 5000) : null;
@@ -159,12 +175,11 @@ export default function Dashboard() {
     };
   }, [reloadList, sayfa]);
 
-  // İstatistikler
   useEffect(() => {
     reloadStats();
   }, [reloadStats]);
 
-  // Tekil durum değişikliği (herkes kullanabilir — talebiniz böyle)
+  // Tekil durum değişimi (herkes)
   const durumDegistir = async (id: string, yeniDurum: string) => {
     await supabase
       .from("musteriler")
@@ -179,7 +194,7 @@ export default function Dashboard() {
     await reloadStats();
   };
 
-  // CSV export (admin değilse bugüne göre export)
+  // CSV export (admin değilse bugüne göre)
   async function exportCSV() {
     const { start, end } = queryRange;
 
@@ -236,7 +251,7 @@ export default function Dashboard() {
     URL.revokeObjectURL(url);
   }
 
-  // XLSX export (admin değilse bugüne göre export)
+  // XLSX export (admin değilse bugüne göre)
   async function exportXLSX() {
     const { start, end } = queryRange;
 
@@ -266,7 +281,7 @@ export default function Dashboard() {
     XLSX.writeFile(wb, `musteriler_${start}_to_${end}.xlsx`);
   }
 
-  // --- TOPLU DURUM DEĞİŞTİRME (yalnız admin) ---
+  // --- TOPLU DURUM DEĞİŞTİRME (sadece admin) ---
   async function topluDurumDegistir(tumFiltre: boolean) {
     if (!isAdmin) {
       alert("Bu işlem sadece adminler içindir.");
@@ -295,10 +310,7 @@ export default function Dashboard() {
         });
 
       if (tumFiltre) {
-        q = q
-          .gte("created_at", start)
-          .lte("created_at", end)
-          .ilike("not", "%whatsapp%");
+        q = q.gte("created_at", start).lte("created_at", end).ilike("not", "%whatsapp%");
       } else {
         const ids = veriler.map((v) => v.id);
         if (ids.length === 0) {
@@ -331,34 +343,58 @@ export default function Dashboard() {
   );
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial" }}>
+    <div style={{ padding: "20px", fontFamily: "Arial", position: "relative" }}>
+      {/* Sağ üst: Çıkış */}
+      <button
+        onClick={logout}
+        style={{
+          position: "absolute",
+          top: 20,
+          right: 20,
+          background: "#c00",
+          color: "#fff",
+          border: "none",
+          padding: "6px 12px",
+          borderRadius: "4px",
+          cursor: "pointer",
+        }}
+      >
+        Çıkış Yap
+      </button>
+
       <h2>🧾 Genel İstatistikler</h2>
 
-      {/* Tarih filtreleri ve export butonları -> yalnız admin görünür */}
+      {/* Tarih filtreleri ve export -> sadece admin */}
       {isAdmin ? (
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <label>Başlangıç</label>
           <input
             type="datetime-local"
             value={seciliBasDT}
-            onChange={(e) => { setSayfa(1); setSeciliBasDT(e.target.value); }}
+            onChange={(e) => {
+              setSayfa(1);
+              setSeciliBasDT(e.target.value);
+            }}
           />
           <label>Bitiş</label>
           <input
             type="datetime-local"
             value={seciliBitDT}
-            onChange={(e) => { setSayfa(1); setSeciliBitDT(e.target.value); }}
+            onChange={(e) => {
+              setSayfa(1);
+              setSeciliBitDT(e.target.value);
+            }}
           />
           <button onClick={exportCSV}>Excel (CSV)</button>
           <button onClick={exportXLSX}>Excel (XLSX)</button>
         </div>
       ) : (
         <div style={{ margin: "8px 0", fontSize: 12, opacity: 0.8 }}>
-          Bugün için veriler gösteriliyor. Detaylı filtreleme sadece adminlere açıktır.
+          Bugün için veriler gösteriliyor. Detaylı filtreleme ve toplu işlemler sadece adminlere açıktır.
         </div>
       )}
 
-      {/* Toplu durum değiştirme -> yalnız admin görünür */}
+      {/* Toplu durum değiştirme -> sadece admin */}
       {isAdmin && (
         <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <label>Toplu durum:</label>
@@ -392,7 +428,12 @@ export default function Dashboard() {
 
       <p>Toplam Mesaj: {istatistik.toplam}</p>
       <p>Aranan: {istatistik.aranan}</p>
-      <p>Arama Oranı: %{istatistik.toplam ? Math.round((istatistik.aranan / istatistik.toplam) * 100) : 0}</p>
+      <p>
+        Arama Oranı: %
+        {istatistik.toplam
+          ? Math.round((istatistik.aranan / istatistik.toplam) * 100)
+          : 0}
+      </p>
 
       <hr />
       <h2>👤 Kullanıcı İstatistikleri</h2>
@@ -433,7 +474,10 @@ export default function Dashboard() {
               <td>{v.updated_by}</td>
               <td>{v.updated_at ? toTRString(v.updated_at) : ""}</td>
               <td>
-                <select defaultValue={v.durum} onChange={(e) => durumDegistir(v.id, e.target.value)}>
+                <select
+                  defaultValue={v.durum}
+                  onChange={(e) => durumDegistir(v.id, e.target.value)}
+                >
                   <option>ARANMADI</option>
                   <option>ARANDI</option>
                   <option>SATIŞ</option>
@@ -446,7 +490,7 @@ export default function Dashboard() {
 
       <div style={{ marginTop: "10px" }}>
         Sayfa:
-        {Array.from({ length: Math.ceil(toplamKayit / sayfaBoyutu) }).map((_, i) => (
+        {Array.from({ length: toplamSayfa }).map((_, i) => (
           <button
             key={i}
             onClick={() => setSayfa(i + 1)}
